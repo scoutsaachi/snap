@@ -404,154 +404,323 @@ public:
 };
 
 /////////////////////////////////////////////////
-// String
+// Memory chunk - simple buffer, non-resizable
+class TMemBase {
+protected:
+  int MxBfL, BfL;
+  char* Bf;
+  bool Owner;
+public:
+  TMemBase() : MxBfL(0), BfL(0), Bf(NULL), Owner(false) {}
+  TMemBase(const int& _BfL) : MxBfL(_BfL), BfL(_BfL), Bf(NULL), Owner(true) {
+    IAssert(BfL >= 0);
+    Bf = new char[BfL];
+  }
+  TMemBase(const void* _Bf, const int& _BfL, const bool& _Owner = true) :
+    MxBfL(_BfL), BfL(_BfL), Bf(NULL), Owner(_Owner) {
+    IAssert(BfL >= 0);
+    if (BfL > 0) {
+      if (Owner) {
+        Bf = new char[BfL]; IAssert(Bf != NULL); memcpy(Bf, _Bf, BfL);
+      } else {
+        Bf = (char*)_Bf;
+      }
+    }
+  }
+  TMemBase(TMemBase&& Src) {
+    MxBfL = Src.MxBfL; BfL = Src.BfL; Bf = Src.Bf; Owner = Src.Owner;
+    Src.MxBfL = Src.BfL = 0; Src.Bf = NULL;  Src.Owner = false;
+  }
+  virtual ~TMemBase() {
+    if (Owner && Bf != NULL) {
+      delete[] Bf; } }
+  int Len() const { return BfL; }
+  bool Empty() const { return BfL == 0; }
+  char* GetBf() const { return Bf; }
+  void Copy(const TMemBase& Mem) {
+    if (this != &Mem) {
+      if (Owner && Bf != NULL) { delete[] Bf; }
+      MxBfL = Mem.MxBfL; BfL = Mem.BfL; Bf = NULL; Owner = (MxBfL > 0);
+      if (MxBfL>0) { Bf = new char[MxBfL]; memcpy(Bf, Mem.Bf, BfL); }
+    }
+  }
+  TMemBase& operator=(TMemBase&& Src) {
+    if (this != &Src) {
+      if (Owner && Bf != NULL) { delete[] Bf; }
+      MxBfL = Src.MxBfL; BfL = Src.BfL; Bf = Src.Bf; Owner = Src.Owner;
+      Src.MxBfL = Src.BfL = 0; Src.Bf = NULL;  Src.Owner = false;
+    }
+    return *this;
+  }
+  TMemBase& operator=(const TMemBase& Mem) {
+    Copy(Mem); return *this;
+  }
+};
+
+/////////////////////////////////////////////////
+// String Threadsafe
 class TStr;
 template <class TVal, class TSizeTy> class TVec;
 typedef TVec<TStr, int> TStrV;
 
 class TStr{
-private:
-  TRStr* RStr;
-private:
-  TStr(const char& Ch, bool){
-    RStr=new TRStr(Ch); RStr->MkRef();}
-  TStr(const char& Ch1, const char& Ch2, bool){
-    RStr=new TRStr(Ch1, Ch2); RStr->MkRef();}
-  static TRStr* GetRStr(const char* CStr);
-  void Optimize();
 public:
-  TStr(){RStr=TRStr::GetNullRStr(); RStr->MkRef();}
-  TStr(const TStr& Str){RStr=Str.RStr; RStr->MkRef();}
-  TStr(const TChA& ChA){RStr=GetRStr(ChA.CStr()); RStr->MkRef();}
-  TStr(const TSStr& SStr){RStr=GetRStr(SStr.CStr()); RStr->MkRef();}
-  TStr(const char* CStr){RStr=GetRStr(CStr); RStr->MkRef();}
-  explicit TStr(const char& Ch){RStr=GetChStr(Ch).RStr; RStr->MkRef();}
-  TStr(const TMem& Mem){
-    RStr=new TRStr(Mem.Len()); RStr->MkRef();
-    memcpy(CStr(), Mem(), Mem.Len()); Optimize();}
-  explicit TStr(const PSIn& SIn){
-    int SInLen=SIn->Len(); RStr=new TRStr(SInLen); RStr->MkRef();
-    SIn->GetBf(CStr(), SInLen); Optimize();}
-  ~TStr(){RStr->UnRef();}
-  explicit TStr(TSIn& SIn, const bool& IsSmall=false):
-    RStr(new TRStr(SIn, IsSmall)){RStr->MkRef(); Optimize();}
-  void Load(TSIn& SIn, const bool& IsSmall=false){
-    *this=TStr(SIn, IsSmall);}
-  void Save(TSOut& SOut, const bool& IsSmall=false) const {
-    RStr->Save(SOut, IsSmall);}
+  typedef const char* TIter;  //!< Random access iterator.
+private:
+  /// Used to construct empty strings ("") to be returned by CStr()
+  const static char EmptyStr;
+  /// String
+  char* Inner;
+
+  /// Wraps the char pointer with a new string. The char pointer is NOT
+  /// copied and the new string becomes responsible for deleting it.
+  static TStr WrapCStr(char* CStr);
+
+public:
+  /// Empty String Constructor
+  TStr(): Inner(nullptr) {}
+  /// C-String constructor
+  TStr(const char* CStr);
+  /// 1 char constructor
+  explicit TStr(const char& Ch);
+  /// copy constructor
+  TStr(const TStr& Str);
+  /// move constructor
+  TStr(TStr&& Str);
+  /// TChA constructor (char-array class)
+  TStr(const TChA& ChA);
+  /// TMem constructor
+  TStr(const TMem& Mem);
+  /// TSStr constructor
+  TStr(const TSStr& SStr); // KILL
+  /// Stream (file) reading constructor
+  explicit TStr(const PSIn& SIn);
+
+  /// We only delete when not empty
+  ~TStr() { Clr(); }
+
+  static TStr GetNullStr() {return TStr("");}
+
+  /// Returns an iterator pointing to the first element in the string.
+  TIter BegI() const { return Empty() ? &EmptyStr : Inner; }
+  /// Returns an iterator pointing to the first element in the string (used by C++11)
+  TIter begin() const { return Empty() ? &EmptyStr : Inner; }
+  /// Returns an iterator referring to the past-the-end element in the string.
+  TIter EndI() const { return Empty() ? &EmptyStr : Inner + Len(); }
+  /// Returns an iterator referring to the past-the-end element in the string (used by C++11))
+  TIter end() const { return Empty() ? &EmptyStr : Inner + Len(); }
+  /// Returns an iterator an element at position \c ValN.
+  TIter GetI(const int ValN) const { return Empty() ? &EmptyStr : Inner + ValN; }
+
+  /// Deserialize TStr from stream, when IsSmall, the string is saved as CStr,
+  /// otherwise the format is first the length and then the data including last \0
+  explicit TStr(TSIn& SIn, const bool& IsSmall = false);
+  // Left for compatibility reasons, best if we can remove it at some point
+  void Load(TSIn& SIn, const bool& IsSmall = false);
+  /// Serialize TStr to stream, when IsSmall, the string is saved as CStr,
+  /// otherwise the format is first the length and then the data including last \0
+  void Save(TSOut& SOut, const bool& IsSmall = false) const;
+   /// Deserialize from XML File
   void LoadXml(const PXmlTok& XmlTok, const TStr& Nm);
+  /// Serialize to XML File
   void SaveXml(TSOut& SOut, const TStr& Nm) const;
 
-  TStr& operator=(const TStr& Str){
-    if (this!=&Str){RStr->UnRef(); RStr=Str.RStr; RStr->MkRef();} return *this;}
-  TStr& operator=(const TChA& ChA){
-    RStr->UnRef(); RStr=GetRStr(ChA.CStr()); RStr->MkRef(); return *this;}
-  TStr& operator=(const char* CStr){
-    RStr->UnRef(); RStr=GetRStr(CStr); RStr->MkRef(); return *this;}
-  TStr& operator=(const char& Ch){
-    RStr->UnRef(); RStr=GetChStr(Ch).RStr; RStr->MkRef(); return *this;}
-  TStr& operator+=(const TStr& Str){
-    TRStr* NewRStr=new TRStr(RStr->CStr(), Str.RStr->CStr());
-    RStr->UnRef(); RStr=NewRStr; RStr->MkRef();
-    Optimize(); return *this;}
-  TStr& operator+=(const char* CStr){
-    TRStr* NewRStr=new TRStr(RStr->CStr(), CStr);
-    RStr->UnRef(); RStr=NewRStr; RStr->MkRef();
-    Optimize(); return *this;}
-  bool operator==(const TStr& Str) const {
-    return (RStr==Str.RStr)||(strcmp(RStr->CStr(), Str.RStr->CStr())==0);}
-  bool operator==(const char* CStr) const {
-    return strcmp(RStr->CStr(), CStr)==0;}
-//  bool operator!=(const TStr& Str) const {
-//    return strcmp(RStr->CStr(), Str.RStr->CStr())!=0;}
-  bool operator!=(const char* CStr) const {
-    return strcmp(RStr->CStr(), CStr)!=0;}
-  bool operator<(const TStr& Str) const {
-    return strcmp(RStr->CStr(), Str.RStr->CStr())<0;}
-  char operator[](const int& ChN) const {return RStr->GetCh(ChN);}
-  int GetMemUsed() const {return int(sizeof(TRStr*)+RStr->GetMemUsed());}
+  /// Assigment operator TStr = TStr
+  TStr& operator=(const TStr& Str);
+  /// Move assigment operator TStr = TStr
+  TStr& operator=(TStr&& Str);
+  /// Assigment operator TStr = TChA
+  TStr& operator=(const TChA& ChA);
+  /// Assigment operator TStr = char* (C-String)
+  TStr& operator=(const char* CStr);
+  TStr& operator=(const char& Ch);
 
-  char* operator()(){return RStr->CStr();}
-  const char* operator()() const {return RStr->CStr();}
-  char* CStr() {return RStr->CStr();}
-  const char* CStr() const {return RStr->CStr();}
+  /// Concatenates and assigns (not thread safe)
+  TStr& operator+=(const TStr& Str) { *this = (*this + Str); return *this; } ;
+  /// Concatenates and assigns (not thread safe)
+  TStr& operator+=(const char* _CStr) { *this = (*this + _CStr); return *this; } ;
+  /// Concatenates and assigns (not thread safe)
+  TStr& operator+=(const char Ch) { *this = (*this + Ch); return *this; };
 
-  void PutCh(const int& ChN, const char& Ch){
-    TRStr* NewRStr=new TRStr(RStr->CStr());
-    RStr->UnRef(); RStr=NewRStr; RStr->MkRef();
-    RStr->PutCh(ChN, Ch); Optimize();}
-  char GetCh(const int& ChN) const {return RStr->GetCh(ChN);}
+  /// Boolean comparison TStr == char*
+  bool operator==(const char* _CStr) const;
+  /// Boolean comparison TStr == TStr
+  bool operator==(const TStr& Str) const { return operator==(Str.CStr()); }
+  // TStr != TStr
+  bool operator!=(const TStr& Str) const { return !operator==(Str); }
+  // TStr != C-String
+  bool operator!=(const char* CStr) const { return !operator==(CStr); }
+  /// < (is less than comparison) TStr < TStr
+  bool operator<(const TStr& Str) const;
+
+  /// Indexing operator, returns character at position ChN
+  char operator[](const int& ChN) const { return GetCh(ChN); }
+  /// Indexing operator, returns character at position ChN by reference
+  char& operator[](const int& ChN);
+
+  char* operator()(){return CloneCStr();}
+  const char* operator()() const {return CStr();}
+
+  /// Get the inner C-String
+  const char* CStr() const { return Empty() ? &EmptyStr : Inner; }
+  /// Return a COPY of the string as a C String (char array)
+  char* CloneCStr() const;
+  /// Set character to given value (not thread safe)
+  void PutCh(const int& ChN, const char& Ch);
+  /// Get character at position ChN
+  char GetCh(const int& ChN) const;
+  /// Get last character in string (before null terminator)
   char LastCh() const {return GetCh(Len()-1);}
+  /// Get String Length (null terminator not included)
+  int Len() const { return Empty() ? 0 : (int)strlen(Inner); }
+  /// Check if this is an empty string
+  bool Empty() const;
+  /// Deletes the char pointer if it is not nullptr. (not thread safe)
+  void Clr();
+  /// returns a reference to this string
+  const TStr& GetStr() const { return *this; }
+  /// Memory used by this String object
+  int GetMemUsed() const;
 
-  void Clr(){RStr->UnRef(); RStr=TRStr::GetNullRStr(); RStr->MkRef();}
-  int Len() const {return RStr->Len();}
-  bool Empty() const {return RStr->Empty();}
-
-  // upper-case
-  bool IsUc() const {return RStr->IsUc();}
+  /// Case insensitive comparison
+  static int CmpI(const char* p, const char* r);
+  /// Case insensitive comparison
+  int CmpI(const TStr& Str) const {return CmpI(CStr(), Str.CStr()); }
+  /// Case insensitive equality
+  bool EqI(const TStr& Str) const {return CmpI(CStr(), Str.CStr()) == 0; }
+  /// Is upper-case?
+  bool IsUc() const;
+  /// Converts this string to all uppercase (not thread safe)
   TStr& ToUc();
-  TStr GetUc() const {return TStr(*this).ToUc();}
-  int CmpI(const TStr& Str) const {return TRStr::CmpI(CStr(), Str.CStr());}
-  bool EqI(const TStr& Str) const {return TRStr::CmpI(CStr(), Str.CStr())==0;}
-  // lower-case
-  bool IsLc() const {return RStr->IsLc();}
+  /// Returns a new string converted to uppercase
+  TStr GetUc() const;
+  /// Is lower-case?
+  bool IsLc() const;
+  /// Converts this string to all lowercase (not thread safe)
   TStr& ToLc();
-  TStr GetLc() const {return TStr(*this).ToLc();}
-  // capitalize
+  /// Returns new string converted to lowercase
+  TStr GetLc() const;
+  /// Converts this string to capitalized (first char is uppercase, rest lowercase) (not thread safe)
   TStr& ToCap();
-  TStr GetCap() const {return TStr(*this).ToCap();}
+  /// Returns string as capitalized (first char is uppercase, rest lowercase)
+  TStr GetCap() const;
 
-  // truncate
+  /// Replaces string with truncated (remove whitespace at start and end) (not thread safe)
   TStr& ToTrunc();
-  TStr GetTrunc() const {return TStr(*this).ToTrunc();}
-  // Yu-Ascii to Us-Ascii
-  TStr& ConvUsFromYuAscii();
-  TStr GetUsFromYuAscii() const {return TStr(*this).ConvUsFromYuAscii();}
-  // hex
+  /// Returns truncated string (remove whitespace at start and end)
+  TStr GetTrunc() const;
+  /// Replaces each char with two chars with its hex-code (not thread safe)
   TStr& ToHex();
-  TStr GetHex() const {return TStr(*this).ToHex();}
+  /// Get string with each char replaced with two chars with its hex-code
+  TStr GetHex() const;
+  /// Does inverse of ToHex (not thread safe)
   TStr& FromHex();
-  TStr GetFromHex() const {return TStr(*this).FromHex();}
+  /// Does inverse of GetHex
+  TStr GetFromHex() const;
 
+  /// Get substring from in interval [BchN, EchN]
   TStr GetSubStr(const int& BChN, const int& EChN) const;
+  /// Get substring from BchN (includive) to the end of the string
   TStr GetSubStr(const int& BChN) const { return GetSubStr(BChN, Len()-1); }
+  /// safe version for getting substring from BchN to EchN
+  TStr GetSubStrSafe(const int& BChN, const int& EChN) const;
+  /// safe version for getting substring from BchN to EchN
+  TStr GetSubStrSafe(const int& BChN) const { return GetSubStrSafe(BChN, Len() - 1); }
+  /// Insert a string Str into this string starting position BchN (not thread safe)
   void InsStr(const int& BChN, const TStr& Str);
+  /// Delete all the occurrences of char Ch (not thread safe)
   void DelChAll(const char& Ch);
+  /// Delete substring from BChN to EChN (not thread safe)
   void DelSubStr(const int& BChN, const int& EChN);
+  /// Delete first occurrences of substring Str (not thread safe)
   bool DelStr(const TStr& Str);
+  /// Delete all occurrences of substring Str (single pass) (not thread safe)
+  int DelStrAll(const TStr& Str);
+
+  /// Get substring from beginning till the character before first occurrence of SplitCh
   TStr LeftOf(const char& SplitCh) const;
+  /// Get substring from beginning till the character before last occurrence of SplitCh
   TStr LeftOfLast(const char& SplitCh) const;
+  /// Get substring from the character after first occurrence of SplitCh till the end
   TStr RightOf(const char& SplitCh) const;
+  /// Get substring from the character after last occurrence of SplitCh till the end
   TStr RightOfLast(const char& SplitCh) const;
+  /// Remove the StartStr if it occurs at the beginning of the string
+  TStr TrimLeft(const TStr& StartStr) const { return StartsWith(StartStr) ? GetSubStrSafe(StartStr.Len()) : TStr(*this); }
+  /// Remove the EndStr if it occurs at the end of the string
+  TStr TrimRight(const TStr& EndStr) const { return EndsWith(EndStr) ? GetSubStrSafe(0, Len() - EndStr.Len() - 1) : TStr(*this); }
+
+  /// Puts the contents to the left of LeftOfChN (exclusive) into LStr and the
+  /// contents on the right of RightOfChN into RStr (exclusive)
+  void SplitLeftOfRightOf(TStr& LStr, const int& LeftOfChN, const int& RightOfChN, TStr& RStr) const;
+  /// Split on the index, return Pair of Left/Right strings, omits the target index
+  void SplitOnChN(TStr& LStr, const int& ChN, TStr& RStr) const;
+  /// Split on first occurrence of SplitCh, return Pair of Left/Right strings, omits the target character
+  /// if the character is not found the whole string is returned as the left side
   void SplitOnCh(TStr& LStr, const char& SplitCh, TStr& RStr) const;
+  /// Splits on the first occurrence of the target string
+  /// if the target string is not found the whole string is returned as the left side
+  void SplitOnStr(TStr& LStr, const TStr& SplitStr, TStr& RStr) const;
+  /// Split on last occurrence of SplitCh, return Pair of Left/Right strings
+  /// if the character is not found the whole string is returned as the right side
   void SplitOnLastCh(TStr& LStr, const char& SplitCh, TStr& RStr) const;
-  void SplitOnAllCh(
-   const char& SplitCh, TStrV& StrV, const bool& SkipEmpty=true) const;
-  void SplitOnAllAnyCh(
-   const TStr& SplitChStr, TStrV& StrV, const bool& SkipEmpty=true) const;
+  /// Split on all occurrences of SplitCh, write to StrV, optionally don't create empy strings (default true)
+  void SplitOnAllCh(const char& SplitCh, TStrV& StrV, const bool& SkipEmpty=true) const;
+  /// Split on all occurrences of any char in SplitChStr, optionally don't create empy strings (default true)
+  void SplitOnAllAnyCh(const TStr& SplitChStr, TStrV& StrV, const bool& SkipEmpty=true) const;
+  /// Split on the occurrences of any string in StrV
   void SplitOnWs(TStrV& StrV) const;
+  /// Split on the occurrences of any non alphanumeric character
   void SplitOnNonAlNum(TStrV& StrV) const;
+  /// Split on all the occurrences of SplitStr, doesn't remove the split string (splitting aabbaacc on aa results in aa, bbaa, cc
   void SplitOnStr(const TStr& SplitStr, TStrV& StrV) const;
-  void SplitOnStr(TStr& LeftStr, const TStr& MidStr, TStr& RightStr) const;
 
-  //TStr Left(const int& Chs) const { return Chs>0 ? GetSubStr(0, Chs-1) : GetSubStr(0, Len()-Chs-1);}
-  //TStr Right(const int& Chs) const {return GetSubStr(Len()-Chs, Len()-1);}
-  TStr Mid(const int& BChN, const int& Chs) const { return GetSubStr(BChN, BChN+Chs-1); }
-  TStr Mid(const int& BChN) const {return GetSubStr(BChN, Len()-1); }
-  //TStr Slice(const int& BChN, const int& EChNP1) const {return GetSubStr(BChN, EChNP1-1);}
-  //TStr operator()(const int& BChN, const int& EChNP1) const {return Slice(BChN, EChNP1);}
-  //J: as in python or matlab: position 1 is 1st character, -1 is last character
-  TStr Left(const int& EChN) const { return EChN>0 ? GetSubStr(0, EChN-1) : GetSubStr(0, Len()+EChN-1);}
+  /// Get substring from beginning till character positioned at EChN (exclusive).
+  /// In case EChN is negative, it counts from the back of the string.
+  TStr Left(const int& EChN) const;
+  /// Get substring from character positioned at BChN (inclusive) till the end.
+  /// In case BChN is negative, it counts from the back of the string.
   TStr Right(const int& BChN) const {return BChN>=0 ? GetSubStr(BChN, Len()-1) : GetSubStr(Len()+BChN, Len()-1);}
-  TStr Slice(int BChN, int EChNP1) const { if(BChN<0){BChN=Len()+BChN;} if(EChNP1<=0){EChNP1=Len()+EChNP1;} return GetSubStr(BChN, EChNP1-1); }
-  TStr operator()(const int& BChN, const int& EChNP1) const {return Slice(BChN, EChNP1);}
 
+  /// Counts occurrences of a character between [BChN, end]
   int CountCh(const char& Ch, const int& BChN=0) const;
+  /// Returns the position of the first occurrence of a character between [BChN, end]
   int SearchCh(const char& Ch, const int& BChN=0) const;
+  /// Returns the position of the last occurrence of a character between [BChN, end]
   int SearchChBack(const char& Ch, int BChN=-1) const;
+  /// Returns the position of the first occurrence of a (sub)string between [BChN, end]
   int SearchStr(const TStr& Str, const int& BChN=0) const;
+  /// Returns true if character occurs in string
   bool IsChIn(const char& Ch) const {return SearchCh(Ch)!=-1;}
+  /// Returns true if (sub)string occurs in string
   bool IsStrIn(const TStr& Str) const {return SearchStr(Str)!=-1;}
+  /// Returns true if this string starts with the prefix c-string
+  bool StartsWith(const char *Str) const;
+  /// Returns true if this string starts with the prefix string
+  bool StartsWith(const TStr& Str) const { return StartsWith(Str.CStr()); }
+  /// Returns true if this string ends with the sufix c-string
+  bool EndsWith(const char *Str) const;
+  /// Returns true if this string ends with the sufix string
+  bool EndsWith(const TStr& Str) const { return EndsWith(Str.CStr()); }
+
+  /// Replaces first occurrence of SrcCh character with DstCh. Start search at BChN. (not thread safe)
+  int ChangeCh(const char& SrcCh, const char& DstCh, const int& BChN=0);
+  /// Replaces all occurrences of SrcCh character with DstCh (not thread safe)
+  int ChangeChAll(const char& SrcCh, const char& DstCh);
+  /// Replace first occurrence of ScrStr string with DstStr string. Start search at BChN. (not thread safe)
+  int ChangeStr(const TStr& SrcStr, const TStr& DstStr, const int& BChN=0);
+  /// Replace all occurrences of ScrStr string with DstStr string (not thread safe)
+  int ChangeStrAll(const TStr& SrcStr, const TStr& DstStr);
+  /// Returns a String with the order of the characters in this String Reversed
+  TStr Reverse() const;
+
+  int GetPrimHashCd() const;
+  int GetSecHashCd() const;
+  int GetHashTrick() const; // @TODO change this to uint32_t
+
+  /// Return true if string is 'T' or 'F'. Return true or false accordingly in Val
+  bool IsBool(bool& Val) const;
+
   bool IsPrefix(const char *Str) const;
   bool IsPrefix(const TStr& Str) const {
     return IsPrefix(Str.CStr());}
@@ -559,36 +728,24 @@ public:
   bool IsSuffix(const TStr& Str) const {
     return IsSuffix(Str.CStr());}
 
-  int ChangeCh(const char& SrcCh, const char& DstCh, const int& BChN=0);
-  int ChangeChAll(const char& SrcCh, const char& DstCh);
-  int ChangeStr(const TStr& SrcStr, const TStr& DstStr, const int& BChN=0);
-  int ChangeStrAll(const TStr& SrcStr, const TStr& DstStr, const bool& FromStartP=false);
-  TStr Reverse() const {
-    TChA ChA(*this); ChA.Reverse(); return ChA;}
-
-  int GetPrimHashCd() const {return RStr->GetPrimHashCd();}
-  int GetSecHashCd() const {return RStr->GetSecHashCd();}
-
-  bool IsBool(bool& Val) const;
-
-  bool IsInt(
-   const bool& Check, const int& MnVal, const int& MxVal, int& Val) const;
+  // integer
+  bool IsInt(const bool& Check, const int& MnVal, const int& MxVal, int& Val) const;
   bool IsInt(int& Val) const {return IsInt(false, 0, 0, Val);}
   bool IsInt() const {int Val; return IsInt(false, 0, 0, Val);}
   int GetInt() const {int Val; IAssertR(IsInt(false, 0, 0, Val), *this); return Val;}
   int GetInt(const int& DfVal) const {
     int Val; if (IsInt(false, 0, 0, Val)){return Val;} else {return DfVal;}}
 
-  bool IsUInt(
-   const bool& Check, const uint& MnVal, const uint& MxVal, uint& Val) const;
+  // unsigned integer
+  bool IsUInt(const bool& Check, const uint& MnVal, const uint& MxVal, uint& Val) const;
   bool IsUInt(uint& Val) const {return IsUInt(false, 0, 0, Val);}
   bool IsUInt() const {uint Val; return IsUInt(false, 0, 0, Val);}
   uint GetUInt() const {uint Val; IAssert(IsUInt(false, 0, 0, Val)); return Val;}
   uint GetUInt(const uint& DfVal) const {
     uint Val; if (IsUInt(false, 0, 0, Val)){return Val;} else {return DfVal;}}
 
-  bool IsInt64(
-   const bool& Check, const int64& MnVal, const int64& MxVal, int64& Val) const;
+  // 64-bit integer
+  bool IsInt64(const bool& Check, const int64& MnVal, const int64& MxVal, int64& Val) const;
   bool IsInt64(int64& Val) const {return IsInt64(false, 0, 0, Val);}
   bool IsInt64() const {int64 Val; return IsInt64(false, 0, 0, Val);}
   int64 GetInt64() const {
@@ -596,8 +753,8 @@ public:
   int64 GetInt64(const int64& DfVal) const {
     int64 Val; if (IsInt64(false, 0, 0, Val)){return Val;} else {return DfVal;}}
 
-  bool IsUInt64(
-   const bool& Check, const uint64& MnVal, const uint64& MxVal, uint64& Val) const;
+  // unsigned 64-bit integer
+  bool IsUInt64(const bool& Check, const uint64& MnVal, const uint64& MxVal, uint64& Val) const;
   bool IsUInt64(uint64& Val) const {return IsUInt64(false, 0, 0, Val);}
   bool IsUInt64() const {uint64 Val; return IsUInt64(false, 0, 0, Val);}
   uint64 GetUInt64() const {
@@ -630,6 +787,9 @@ public:
   double GetFlt(const double& DfVal) const {
     double Val; if (IsFlt(false, 0, 0, Val)){return Val;} else {return DfVal;}}
 
+  /*
+   * Word matching methods
+   */
   bool IsWord(const bool& WsPrefixP=true, const bool& FirstUcAllowedP=true) const;
   bool IsWs() const;
 
@@ -644,14 +804,21 @@ public:
   bool IsWcMatch(const TStr& WcStr) const;
   TStr GetWcMatch(const TStr& WcStr, const int& StarStrN=0) const;
 
+  /*
+   * Path Handling Functions
+   */
   TStr GetFPath() const;
   TStr GetFBase() const;
   TStr GetFMid() const;
   TStr GetFExt() const;
+
+  /*
+   * Static Path Handling Functions
+   */
   static TStr GetNrFPath(const TStr& FPath);
   static TStr GetNrFMid(const TStr& FMid);
   static TStr GetNrFExt(const TStr& FExt);
-  static TStr GetNrNumFExt(const int& FExtN);
+  static TStr GetNrNumFExt(const int& FExtN, const int& MinLen = 3);
   static TStr GetNrFNm(const TStr& FNm);
   static TStr GetNrAbsFPath(const TStr& FPath, const TStr& BaseFPath=TStr());
   static bool IsAbsFPath(const TStr& FPath);
@@ -663,6 +830,9 @@ public:
   static TStr GetNumFNm(const TStr& FNm, const int& Num);
   static TStr GetFNmStr(const TStr& Str, const bool& AlNumOnlyP=true);
 
+  /*
+   * Static Save/Load Text File Functions
+   */
   static TStr LoadTxt(const PSIn& SIn){
     return TStr(SIn);}
   static TStr LoadTxt(const TStr& FNm){
@@ -672,41 +842,63 @@ public:
   void SaveTxt(const TStr& FNm) const {
     PSOut SOut=TFOut::New(FNm); SaveTxt(SOut);}
 
-  static TStr& GetChStr(const char& Ch);
-  static TStr& GetDChStr(const char& Ch1, const char& Ch2);
-
-  TStr GetStr() const {return *this;}
+  /*
+   * Static methods for FmtStr
+   */
   static TStr GetStr(const TStr& Str, const char* FmtStr);
-  static TStr GetStr(const TStr& Str, const TStr& FmtStr){
-    return GetStr(Str, FmtStr.CStr());}
+  static TStr GetStr(const TStr& Str, const TStr& FmtStr) { return GetStr(Str, FmtStr.CStr()); }
   static TStr GetStr(const TStrV& StrV, const TStr& DelimiterStr);
   static TStr Fmt(const char *FmtStr, ...);
   static TStr GetSpaceStr(const int& Spaces);
-  char* GetCStr() const {
-    char* Bf=new char[Len()+1]; strcpy(Bf, CStr()); return Bf;}
 
-  static TStr MkClone(const TStr& Str){return TStr(Str.CStr());}
-  static TStr GetNullStr();
-
-  friend TStr operator+(const TStr& LStr, const TStr& RStr);
+  /// Concatenates the first string parameter with the char array
   friend TStr operator+(const TStr& LStr, const char* RCStr);
+  /// Concatenates the two strings
+  friend TStr operator+(const TStr& LStr, const TStr& RStr);
+  /// Concatenates the first string parameter with single char
+  friend TStr operator+(const TStr& LStr, const char Ch);
+
+
+
+  /// Base64-encode given buffer and return resulting string
+  static TStr Base64Encode(const void* Bf, const int BfL);
+  /// Base64-encode given buffer and return resulting string
+  static TStr Base64Encode(const TMemBase& Mem) { return Base64Encode(Mem.GetBf(), Mem.Len()); }
+  /// Base64-decode given string and fill this TMem object
+  static void Base64Decode(const TStr& In, TMem& Mem);
+
+private:
+
+  /// Static mapping utility for base64 characters
+  static const TStr base64_chars;
+
+  /// This method checks if given character belongs to base64 range
+  static inline bool is_base64(unsigned char c) { return (isalnum(c) || (c == '+') || (c == '/')); };
+
+
+  /// internal method used to check if the string stored in TChRet is an unsigned integer
+  /// IMPORTANT: TChRet must be initialized (GetCh() must be called at least once)
+  static bool IsUInt(TChRet& Ch, const bool& Check, const uint& MnVal, const uint& MxVal, uint& Val);
+  /// internal method used to check if the string stored in TChRet is a 64-bit unsigned integer
+  /// IMPORTANT: TChRet must be initialized (GetCh() must be called at least once)
+  static bool IsUInt64(TChRet& Ch, const bool& Check, const uint64& MnVal, const uint64& MxVal, uint64& Val);
 };
 
 /////////////////////////////////////////////////
-// Input-String
+// Input-String:
 class TStrIn: public TSIn{
 private:
-  TStr Str;
-  char* Bf;
+  const bool OwnP;
+  const char* Bf;
   int BfC, BfL;
 private:
   TStrIn();
   TStrIn(const TStrIn&);
-  TStrIn& operator = (const TStrIn&);
+  TStrIn& operator=(const TStrIn&);
 public:
-  TStrIn(const TStr& _Str);
-  static PSIn New(const TStr& Str){return PSIn(new TStrIn(Str));}
-  ~TStrIn(){}
+  TStrIn(const TStr& Str, const bool& MakeCopyP = true);
+  static PSIn New(const TStr& Str, const bool& MakeCopyP = true);
+  ~TStrIn(){ if (OwnP) { delete[] Bf; }}
 
   bool Eof(){return BfC==BfL;}
   int Len() const {return BfL-BfC;}
@@ -715,6 +907,7 @@ public:
   int GetBf(const void* LBf, const TSize& LBfL);
   void Reset(){Cs=TCs(); BfC=0;}
   bool GetNextLnBf(TChA& LnChA);
+  TStr GetSNm() const;
 };
 
 /////////////////////////////////////////////////

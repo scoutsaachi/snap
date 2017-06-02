@@ -209,7 +209,7 @@ void WriteNodesToFile(FILE *F, const PNEANet& Graph, TStrV &IntAttrNNames, TStrV
         fprintf(F, "\t%s", NULL_VAL.CStr());
         continue;
       }
-      char * AttrStrVal = Graph->GetStrAttrDatN(NI.GetId(), StrAttrNNames[i]).CStr();
+      char * AttrStrVal = Graph->GetStrAttrDatN(NI.GetId(), StrAttrNNames[i]).CloneCStr();
       fprintf(F, "\t%s", AttrStrVal);
     }
     fprintf(F, "\n");
@@ -259,7 +259,7 @@ void WriteEdgesToFile(FILE *F, const PNEANet& Graph, TStrV &IntAttrENames, TStrV
         fprintf(F, "\t%s", NULL_VAL.CStr());
         continue;
       }
-      char * AttrStrVal = Graph->GetStrAttrDatE(EI.GetId(), StrAttrENames[i]).CStr();
+      char * AttrStrVal = Graph->GetStrAttrDatE(EI.GetId(), StrAttrENames[i]).CloneCStr();
       fprintf(F, "\t%s", AttrStrVal);
     }
     fprintf(F, "\n");

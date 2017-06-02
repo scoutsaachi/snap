@@ -427,7 +427,7 @@ void TMAGFitBern::SaveTxt(const TStr& FNm) {
 	TMAGAffMtxV MtxV;
 	Param.GetMtxV(MtxV);
 
-	FILE *fp = fopen(FNm.GetCStr(), "w");
+	FILE *fp = fopen(FNm.CloneCStr(), "w");
 	for(int l = 0; l < NAttrs; l++) {
 		fprintf(fp, "%.4f\t", double(MuV[l]));
 		for(int row = 0; row < 2; row++) {
@@ -496,7 +496,7 @@ void TMAGFitBern::PerturbInit(const TFltV& MuV, const TMAGAffMtxV& AffMtxV, cons
 	printf("\n");
 	for(int l = 0; l < NAttrs; l++) {
 		printf("Mu = %.3f  ", DistParam.GetMu(l));
-		printf("AffMtx = %s\n", PerturbMtxV[l].GetMtxStr().GetCStr());
+		printf("AffMtx = %s\n", PerturbMtxV[l].GetMtxStr().CloneCStr());
 	}
 	Param.SetMtxV(PerturbMtxV);
 	Param.SetNodeAttr(DistParam);
@@ -541,7 +541,7 @@ void TMAGFitBern::RandomInit(const TFltV& MuV, const TMAGAffMtxV& AffMtxV, const
 	
 	printf("\n");
 	for(int l = 0; l < NAttrs; l++) {
-		printf("AffMtx = %s\n", RndMtxV[l].GetMtxStr().GetCStr());
+		printf("AffMtx = %s\n", RndMtxV[l].GetMtxStr().CloneCStr());
 	}
 	Param.SetMtxV(RndMtxV);
 	Param.SetNodeAttr(DistParam);
@@ -1444,7 +1444,7 @@ const double TMAGFitBern::UpdateAffMtx(const int& AId, const double& LrnRate, co
 	}
 
 	printf("      [Attr = %d]\n", AId);
-    printf("        %s  + [%f, %f; %f %f]  ----->  %s\n", (AffMtx.GetMtxStr()).GetCStr(), double(GradV[0]), double(GradV[1]), double(GradV[2]), double(GradV[3]), (NewMtx.GetMtxStr()).GetCStr());
+    printf("        %s  + [%f, %f; %f %f]  ----->  %s\n", (AffMtx.GetMtxStr()).CloneCStr(), double(GradV[0]), double(GradV[1]), double(GradV[2]), double(GradV[3]), (NewMtx.GetMtxStr()).CloneCStr());
 	
 //	Param.SetMtx(AId, NewMtx);
 	return Delta;

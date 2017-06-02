@@ -286,7 +286,7 @@ void TEnv::GetVarNmValV(TStrV& VarNmValV){
 }
 
 void TEnv::PutVarVal(const TStr& VarNm, const TStr& VarVal) {
-  const int RetVal = putenv(TStr::Fmt("%s=%s", VarNm.CStr(), VarVal.CStr()).CStr());
+  const int RetVal = putenv(TStr::Fmt("%s=%s", VarNm.CloneCStr(), VarVal.CloneCStr()).CloneCStr());
   IAssert(RetVal==0);
 }
 
