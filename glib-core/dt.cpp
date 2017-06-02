@@ -721,7 +721,7 @@ bool TStr::IsPrefix(const char *Str) const {
   size_t pref_len = strlen(Str);
   if (pref_len > Len()) return false;
   for (int i=0; i<pref_len; i++) {
-    if (Str[0] != (*this)[i]) return false;
+    if (Str[i] != (*this)[i]) return false;
   }
   return true;
 }
