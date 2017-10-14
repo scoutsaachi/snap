@@ -405,6 +405,7 @@ public:
 
 /////////////////////////////////////////////////
 // Memory chunk - simple buffer, non-resizable
+#ifndef SWIG
 class TMemBase {
 protected:
   int MxBfL, BfL;
@@ -427,7 +428,7 @@ public:
       }
     }
   }
-  TMemBase(TMemBase&& Src) {
+  TMemBase(TMemBase && Src) {
     MxBfL = Src.MxBfL; BfL = Src.BfL; Bf = Src.Bf; Owner = Src.Owner;
     Src.MxBfL = Src.BfL = 0; Src.Bf = NULL;  Src.Owner = false;
   }
@@ -456,7 +457,7 @@ public:
     Copy(Mem); return *this;
   }
 };
-
+#endif
 /////////////////////////////////////////////////
 // String Threadsafe
 class TStr;
@@ -467,8 +468,10 @@ class TStr{
 public:
   typedef const char* TIter;  //!< Random access iterator.
 private:
+  #ifndef SWIG
   /// Used to construct empty strings ("") to be returned by CStr()
   const static char EmptyStr;
+  #endif
   /// String
   char* Inner;
 
@@ -486,7 +489,9 @@ public:
   /// copy constructor
   TStr(const TStr& Str);
   /// move constructor
+  #ifndef SWIG
   TStr(TStr&& Str);
+  #endif
   /// TChA constructor (char-array class)
   TStr(const TChA& ChA);
   /// TMem constructor
@@ -528,7 +533,9 @@ public:
   /// Assigment operator TStr = TStr
   TStr& operator=(const TStr& Str);
   /// Move assigment operator TStr = TStr
+  #ifndef SWIG
   TStr& operator=(TStr&& Str);
+  #endif
   /// Assigment operator TStr = TChA
   TStr& operator=(const TChA& ChA);
   /// Assigment operator TStr = char* (C-String)
